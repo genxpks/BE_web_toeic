@@ -1,0 +1,168 @@
+import { AttemptStatus } from '@prisma/client';
+import { Request, Response } from 'express';
+import { z } from 'zod';
+import { prisma } from '../config/prisma.js';
+
+const startSchema = z.object({
+  userId: z.string().min(1),
+  mockTestId: z.string().min(1),
+});
+
+const saveAnswerSchema = z.object({
+  questionId: z.string().min(1),
+  choiceId: z.string().min(1).nullable().optional(),
+});
+
+export async function startAttempt(req: Request, res: Response) {
+  const body = startSchema.parse(req.body);
+
+  const mockTest = await prisma.mockTest.findUnique({ where: { id: body.mockTestId } });
+  if (!mockTest) throw new Error('Mock test not found');
+
+  const attempt = await prisma.attempt.create({
+    data: {
+      userId: body.userId,
+      mockTestId: body.mockTestId,
+      remainingTimeSec: mockTest.durationSec,
+      lastActivityAt: new Date(),
+    },
+  });
+
+  res.status(201).json({ data: attempt });
+}
+
+export async function saveAnswer(req: Request, res: Response) {
+  const { attemptId } = req.params;
+  const body = saveAnswerSchema.parse(req.body);
+
+  const attempt = await prisma.attempt.findUnique({ where: { id: attemptId } });
+  if (!attempt) throw new Error('Attempt not found');
+  if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
+
+  const answer = await prisma.attemptAnswer.upsert({
+    where: {
+      attemptId_questionId: {
+        attemptId,
+        questionId: body.questionId,
+      },
+    },
+    create: {
+      attemptId,
+      questionId: body.questionId,
+      choiceId: body.choiceId || null,
+    },
+    update: {
+      choiceId: body.choiceId || null,
+      answeredAt: new Date(),
+    },
+  });
+
+  await prisma.attempt.update({
+    where: { id: attemptId },
+    data: { lastActivityAt: new Date() },
+  });
+
+  res.json({ data: answer });
+}
+
+export async function getAttemptSnapshot(req: Request, res: Response) {
+  const { attemptId } = req.params;
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      answers: true,
+      mockTest: true,
+    },
+  });
+
+  if (!attempt) throw new Error('Attempt not found');
+
+  res.json({ data: attempt });
+}
+
+export async function submitAttempt(req: Request, res: Response) {
+  const { attemptId } = req.params;
+
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      answers: true,
+      mockTest: {
+        include: {
+          sections: {
+            include: {
+              parts: {
+                include: {
+                  questions: {
+                    include: { choices: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) throw new Error('Attempt not found');
+  if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt already finished');
+
+  const questions = attempt.mockTest.sections.flatMap((section) =>
+    section.parts.flatMap((part) => part.questions.map((question) => ({ ...question, sectionType: section.type }))),
+  );
+
+  const answersByQuestionId = new Map(attempt.answers.map((item) => [item.questionId, item.choiceId]));
+  let listeningRaw = 0;
+  let readingRaw = 0;
+  let correctCount = 0;
+  let blankCount = 0;
+
+  for (const question of questions) {
+    const selected = answersByQuestionId.get(question.id);
+    if (!selected) {
+      blankCount += 1;
+      continue;
+    }
+
+    const correctChoice = question.choices.find((choice) => choice.isCorrect);
+    if (correctChoice?.id === selected) {
+      correctCount += 1;
+      if (question.sectionType === 'LISTENING') listeningRaw += 1;
+      else readingRaw += 1;
+    }
+  }
+
+  const wrongCount = questions.length - correctCount - blankCount;
+  const listeningScaled = Math.min(495, listeningRaw * 5);
+  const readingScaled = Math.min(495, readingRaw * 5);
+  const totalScore = listeningScaled + readingScaled;
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.attempt.update({
+      where: { id: attemptId },
+      data: {
+        status: AttemptStatus.SUBMITTED,
+        submittedAt: new Date(),
+        lastActivityAt: new Date(),
+      },
+    });
+
+    return tx.result.create({
+      data: {
+        userId: attempt.userId,
+        attemptId,
+        listeningRaw,
+        readingRaw,
+        listeningScaled,
+        readingScaled,
+        totalScore,
+        correctCount,
+        wrongCount,
+        blankCount,
+      },
+    });
+  });
+
+  res.json({ data: result });
+}
