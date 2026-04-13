@@ -114,6 +114,7 @@ model Attempt {
   startedAt         DateTime        @default(now())
   submittedAt       DateTime?
   remainingTimeSec  Int
+  expiresAt         DateTime
   lastActivityAt    DateTime?
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   mockTest          MockTest        @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
