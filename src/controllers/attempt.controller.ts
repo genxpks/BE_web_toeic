@@ -29,31 +29,10 @@ export async function saveAnswer(req: Request, res: Response) {
   const attemptId = req.params.attemptId as string;
   const body = saveAnswerSchema.parse(req.body);
 
-  const attempt = await prisma.attempt.findUnique({ where: { id: attemptId } });
-  if (!attempt) throw new Error('Attempt not found');
-  if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
-
-  const answer = await prisma.attemptAnswer.upsert({
-    where: {
-      attemptId_questionId: {
-        attemptId,
-        questionId: body.questionId,
-      },
-    },
-    create: {
-      attemptId,
-      questionId: body.questionId,
-      choiceId: body.choiceId || null,
-    },
-    update: {
-      choiceId: body.choiceId || null,
-      answeredAt: new Date(),
-    },
-  });
-
-  await prisma.attempt.update({
-    where: { id: attemptId },
-    data: { lastActivityAt: new Date() },
+  const answer = await attemptService.saveAnswer({
+    attemptId,
+    questionId: body.questionId,
+    choiceId: body.choiceId ?? null,
   });
 
   res.json({ data: answer });
