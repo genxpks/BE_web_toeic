@@ -45,7 +45,8 @@ export async function listMockTests(req: Request, res: Response) {
 }
 
 export async function getMockTestDetail(req: Request, res: Response) {
-  const { id } = req.params;
+  const id = req.params['id'] as string;
+
 
   const item = await prisma.mockTest.findUnique({
     where: { id },
