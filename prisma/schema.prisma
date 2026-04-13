@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TestStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum SectionType {
+  LISTENING
+  READING
+}
+
+enum MediaType {
+  AUDIO
+  IMAGE
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  fullName  String?
+  attempts  Attempt[]
+  results   Result[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model MockTest {
+  id             String      @id @default(cuid())
+  slug           String      @unique
+  title          String
+  description    String?
+  totalQuestions Int         @default(200)
+  durationSec    Int         @default(7200)
+  status         TestStatus  @default(DRAFT)
+  sections       Section[]
+  attempts       Attempt[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model Section {
+  id            String      @id @default(cuid())
+  mockTestId    String
+  type          SectionType
+  title         String
+  orderNo       Int
+  durationSec   Int?
+  instruction   String?
+  mockTest      MockTest    @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+  parts         Part[]
+  mediaAssets   MediaAsset[]
+
+  @@unique([mockTestId, orderNo])
+  @@index([mockTestId, type])
+}
+
+model Part {
+  id            String      @id @default(cuid())
+  sectionId     String
+  title         String
+  orderNo       Int
+  instruction   String?
+  section       Section     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  questions     Question[]
+  mediaAssets   MediaAsset[]
+
+  @@unique([sectionId, orderNo])
+}
+
+model Question {
+  id              String          @id @default(cuid())
+  partId          String
+  orderNo         Int
+  questionNumber  Int
+  stem            String
+  explanation     String?
+  correctChoiceId String?
+  part            Part            @relation(fields: [partId], references: [id], onDelete: Cascade)
+  choices         Choice[]
+  answers         AttemptAnswer[]
+  mediaAssets     MediaAsset[]
+
+  @@unique([partId, orderNo])
+  @@unique([partId, questionNumber])
+}
+
+model Choice {
+  id          String          @id @default(cuid())
+  questionId  String
+  label       String
+  content     String
+  isCorrect   Boolean         @default(false)
+  question    Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers     AttemptAnswer[]
+
+  @@unique([questionId, label])
+}
+
+model Attempt {
+  id                String          @id @default(cuid())
+  userId            String
+  mockTestId        String
+  status            AttemptStatus   @default(IN_PROGRESS)
+  startedAt         DateTime        @default(now())
+  submittedAt       DateTime?
+  remainingTimeSec  Int
+  lastActivityAt    DateTime?
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mockTest          MockTest        @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+  answers           AttemptAnswer[]
+  result            Result?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([userId, mockTestId, status])
+}
+
+model AttemptAnswer {
+  id          String    @id @default(cuid())
+  attemptId   String
+  questionId  String
+  choiceId    String?
+  answeredAt  DateTime  @default(now())
+  attempt     Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question    Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  choice      Choice?   @relation(fields: [choiceId], references: [id], onDelete: SetNull)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId, answeredAt])
+}
+
+model Result {
+  id                 String    @id @default(cuid())
+  userId             String
+  attemptId          String    @unique
+  listeningRaw       Int       @default(0)
+  readingRaw         Int       @default(0)
+  listeningScaled    Int       @default(0)
+  readingScaled      Int       @default(0)
+  totalScore         Int       @default(0)
+  correctCount       Int       @default(0)
+  wrongCount         Int       @default(0)
+  blankCount         Int       @default(0)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempt            Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  createdAt          DateTime  @default(now())
+}
+
+model MediaAsset {
+  id           String     @id @default(cuid())
+  type         MediaType
+  fileName     String
+  originalName String
+  mimeType     String
+  fileSize     Int
+  storagePath  String
+  publicUrl    String
+  sectionId    String?
+  partId       String?
+  questionId   String?
+  section      Section?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  part         Part?      @relation(fields: [partId], references: [id], onDelete: SetNull)
+  question     Question?  @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  createdAt    DateTime   @default(now())
+}
