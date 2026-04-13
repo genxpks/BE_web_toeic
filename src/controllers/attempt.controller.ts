@@ -2,6 +2,7 @@ import { AttemptStatus } from '@prisma/client';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
+import * as attemptService from '../services/attempt.service.js';
 
 const startSchema = z.object({
   userId: z.string().min(1),
@@ -16,16 +17,9 @@ const saveAnswerSchema = z.object({
 export async function startAttempt(req: Request, res: Response) {
   const body = startSchema.parse(req.body);
 
-  const mockTest = await prisma.mockTest.findUnique({ where: { id: body.mockTestId } });
-  if (!mockTest) throw new Error('Mock test not found');
-
-  const attempt = await prisma.attempt.create({
-    data: {
-      userId: body.userId,
-      mockTestId: body.mockTestId,
-      remainingTimeSec: mockTest.durationSec,
-      lastActivityAt: new Date(),
-    },
+  const attempt = await attemptService.startAttempt({
+    userId: body.userId,
+    mockTestId: body.mockTestId,
   });
 
   res.status(201).json({ data: attempt });
