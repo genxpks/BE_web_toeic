@@ -1,7 +1,12 @@
-import { AttemptStatus } from '@prisma/client';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
+
+const AttemptStatus = {
+  IN_PROGRESS: 'IN_PROGRESS',
+  SUBMITTED: 'SUBMITTED',
+  EXPIRED: 'EXPIRED',
+} as const;
 
 const startSchema = z.object({
   userId: z.string().min(1),
@@ -108,11 +113,11 @@ export async function submitAttempt(req: Request, res: Response) {
   if (!attempt) throw new Error('Attempt not found');
   if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt already finished');
 
-  const questions = attempt.mockTest.sections.flatMap((section) =>
-    section.parts.flatMap((part) => part.questions.map((question) => ({ ...question, sectionType: section.type }))),
+  const questions = attempt.mockTest.sections.flatMap((section: any) =>
+    section.parts.flatMap((part: any) => part.questions.map((question: any) => ({ ...question, sectionType: section.type }))),
   );
 
-  const answersByQuestionId = new Map(attempt.answers.map((item) => [item.questionId, item.choiceId]));
+  const answersByQuestionId = new Map(attempt.answers.map((item: any) => [item.questionId, item.choiceId]));
   let listeningRaw = 0;
   let readingRaw = 0;
   let correctCount = 0;
@@ -125,7 +130,7 @@ export async function submitAttempt(req: Request, res: Response) {
       continue;
     }
 
-    const correctChoice = question.choices.find((choice) => choice.isCorrect);
+    const correctChoice = question.choices.find((choice: any) => choice.isCorrect);
     if (correctChoice?.id === selected) {
       correctCount += 1;
       if (question.sectionType === 'LISTENING') listeningRaw += 1;
@@ -138,7 +143,7 @@ export async function submitAttempt(req: Request, res: Response) {
   const readingScaled = Math.min(495, readingRaw * 5);
   const totalScore = listeningScaled + readingScaled;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: any) => {
     await tx.attempt.update({
       where: { id: attemptId },
       data: {
