@@ -147,6 +147,9 @@ model Result {
   correctCount       Int       @default(0)
   wrongCount         Int       @default(0)
   blankCount         Int       @default(0)
+  listeningBlank     Int       @default(0)
+  readingBlank       Int       @default(0)
+  breakdownJson      String?
   user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   attempt            Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   createdAt          DateTime  @default(now())

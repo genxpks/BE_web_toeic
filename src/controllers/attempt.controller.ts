@@ -2,7 +2,7 @@ import { AttemptStatus } from '@prisma/client';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
-import { calculateRawScore } from '../services/scoring.service.js';
+import { calculateRawScore, toScaledScore } from '../services/scoring.service.js';
 
 const startSchema = z.object({
   userId: z.string().min(1),
@@ -27,7 +27,7 @@ export async function startAttempt(req: Request, res: Response) {
       remainingTimeSec: mockTest.durationSec,
       lastActivityAt: new Date(),
     },
-  });
+  }); 
 
   res.status(201).json({ data: attempt });
 }
@@ -118,13 +118,15 @@ export async function submitAttempt(req: Request, res: Response) {
     attempt.answers.map((a) => [a.questionId, a.choiceId]),
   );
 
+
   // ── Scoring engine ──────────────────────────────────────────────────────
   const scoring = calculateRawScore(attempt.mockTest.sections, answersByQuestionId);
   const { overall } = scoring;
 
-  const listeningScaled = Math.min(495, overall.listeningRaw * 5);
-  const readingScaled   = Math.min(495, overall.readingRaw * 5);
-  const totalScore      = listeningScaled + readingScaled;
+  const { listeningScaled, readingScaled, totalScore } = toScaledScore(
+    overall.listeningRaw,
+    overall.readingRaw,
+  );
 
   // ── Persist ─────────────────────────────────────────────────────────────
   const result = await prisma.$transaction(async (tx) => {
@@ -149,18 +151,19 @@ export async function submitAttempt(req: Request, res: Response) {
         correctCount:    overall.correctCount,
         wrongCount:      overall.wrongCount,
         blankCount:      overall.blankCount,
+        listeningBlank:  overall.listeningBlank,
+        readingBlank:    overall.readingBlank,
+        breakdownJson:   JSON.stringify({ sections: scoring.sections, parts: scoring.parts }),
       },
     });
   });
 
-  // Return persisted result + live breakdown
+  const breakdown = result.breakdownJson ? JSON.parse(result.breakdownJson) : null;
+
   res.status(201).json({
     data: {
       ...result,
-      breakdown: {
-        sections: scoring.sections,
-        parts:    scoring.parts,
-      },
+      breakdown,
     },
   });
 }
@@ -171,53 +174,17 @@ export async function submitAttempt(req: Request, res: Response) {
 export async function getAttemptResult(req: Request, res: Response) {
   const attemptId = req.params['attemptId'] as string;
 
-  // Load persisted result
   const result = await prisma.result.findUnique({
     where: { attemptId },
   });
   if (!result) throw new Error('Result not found – attempt may not be submitted yet');
 
-  // Re-load attempt with full structure to compute breakdown
-  const attempt = await prisma.attempt.findUnique({
-    where: { id: attemptId },
-    include: {
-      answers: true,
-      mockTest: {
-        include: {
-          sections: {
-            orderBy: { orderNo: 'asc' },
-            include: {
-              parts: {
-                orderBy: { orderNo: 'asc' },
-                include: {
-                  questions: {
-                    orderBy: { orderNo: 'asc' },
-                    include: { choices: true },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!attempt) throw new Error('Attempt not found');
-
-  const answersByQuestionId = new Map(
-    attempt.answers.map((a) => [a.questionId, a.choiceId]),
-  );
-
-  const scoring = calculateRawScore(attempt.mockTest.sections, answersByQuestionId);
+  const breakdown = result.breakdownJson ? JSON.parse(result.breakdownJson) : null;
 
   res.json({
     data: {
       ...result,
-      breakdown: {
-        sections: scoring.sections,
-        parts:    scoring.parts,
-      },
+      breakdown,
     },
   });
 }

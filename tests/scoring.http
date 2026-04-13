@@ -7,14 +7,15 @@
 
 @baseUrl   = http://localhost:8080/api
 @userId    = cmnw03aaq0000dr4sxbtcr0fa
-@testId    = cmnwmrtsx0001i6r4aj1raogs
+@testId    = cmnwz1wgv0001i65g8eqprapo
 
-### Sau bước 1, copy attemptId từ response rồi điền vào đây:
-@attemptId = <ĐIỀN_ATTEMPT_ID_TỪ_BƯỚC_1>
+### Sau bước 1, copy "id" từ response rồi điền vào đây:
+# <ĐIỀN_ATTEMPT_ID_TỪ_BƯỚC_1>
+@attemptId =cmnwz2j6e0001i670q3ystxcp
 
 ### =====================================================================
 ### BƯỚC 1 – Bắt đầu bài thi
-### Nhấn "Send Request" ngay bên dưới. Copy "id" từ response → điền @attemptId
+### Nhấn "Send Request". Copy "id" từ response → điền @attemptId ở trên
 ### =====================================================================
 
 # @name step1_start
@@ -26,94 +27,135 @@ Content-Type: application/json
   "mockTestId": "{{testId}}"
 }
 
+###
+
 ### =====================================================================
-### BƯỚC 2A – Trả lời Q1 ĐÚNG (Listening – Q1)
+### BƯỚC 2 – Xem cấu trúc bài thi (tham khảo questionId / choiceId)
+### =====================================================================
+
+# @name step2_snapshot
+GET {{baseUrl}}/attempts/{{attemptId}}
+
+###
+
+### =====================================================================
+### BƯỚC 3A – Trả lời Q1 ĐÚNG (Listening)
 ### Q1: "What is happening in the picture?"
-### Đáp án đúng: A. A man is opening a box.
+### ✅ Chọn A → "A man is opening a box." (đáp án đúng)
 ### =====================================================================
 
-# @name step2a_q1_correct
+# @name step3a_q1_correct
 PUT {{baseUrl}}/attempts/{{attemptId}}/answers
 Content-Type: application/json
 
 {
-  "questionId": "cmnwmrtsy0004i6r4i7ts2g9t",
-  "choiceId": "cmnwmrtsy0005i6r4abbn24a0"
+  "questionId": "cmnwysbdf0004i6pcppj1cgls",
+  "choiceId":   "cmnwysbdf0005i6pcnxhg9udm"
 }
 
+###
+
 ### =====================================================================
-### BƯỚC 2B – Trả lời Q2 SAI (Listening – Q2)
+### BƯỚC 3B – Trả lời Q2 SAI (Listening)
 ### Q2: "Where most likely are the speakers?"
-### Đáp án SAI: A. At a library  (đúng là B. At a train station)
+### ❌ Chọn A → "At a library" (đúng là B. At a train station)
 ### =====================================================================
 
-# @name step2b_q2_wrong
+# @name step3b_q2_wrong
 PUT {{baseUrl}}/attempts/{{attemptId}}/answers
 Content-Type: application/json
 
 {
-  "questionId": "cmnwmrtsy0009i6r4b87elpwp",
-  "choiceId": "cmnwmrtsy000ai6r40i8m036i"
+  "questionId": "cmnwysbdf0009i6pcux4zxi4d",
+  "choiceId":   "cmnwysbdf000ai6pcpu7nqgsy"
 }
 
+###
+
 ### =====================================================================
-### BƯỚC 2C – Trả lời Q101 ĐÚNG (Reading – Q101)
+### BƯỚC 3C – Trả lời Q101 ĐÚNG (Reading)
 ### Q101: "Please submit the report ____ Friday."
-### Đáp án đúng: C. by
+### ✅ Chọn C → "by" (đáp án đúng)
 ### =====================================================================
 
-# @name step2c_q101_correct
+# @name step3c_q101_correct
 PUT {{baseUrl}}/attempts/{{attemptId}}/answers
 Content-Type: application/json
 
 {
-  "questionId": "cmnwmrtsy000gi6r4ptka983e",
-  "choiceId": "cmnwmrtsy000ji6r42ekthil2"
+  "questionId": "cmnwysbdf000gi6pcjf82ytmv",
+  "choiceId":   "cmnwysbdf000ji6pc2eq7006p"
 }
 
+###
+
 ### =====================================================================
-### BƯỚC 2D – Bỏ trống Q102 (Reading – Q102) → gửi null
+### BƯỚC 3D – Bỏ trống Q102 (Reading)
 ### Q102: "The manager asked the team to work more ____."
-### Không biết → bỏ trống
+### ⬜ choiceId = null → bỏ trống
 ### =====================================================================
 
-# @name step2d_q102_blank
+# @name step3d_q102_blank
 PUT {{baseUrl}}/attempts/{{attemptId}}/answers
 Content-Type: application/json
 
 {
-  "questionId": "cmnwmrtsy000li6r415il029v",
-  "choiceId": null
+  "questionId": "cmnwysbdf000li6pcigs4mwom",
+  "choiceId":   null
 }
 
+###
+
 ### =====================================================================
-### BƯỚC 3 – Nộp bài
+### BƯỚC 4 – Nộp bài
 ### Kết quả mong đợi:
-###   correctCount = 2, wrongCount = 1, blankCount = 1
-###   Listening: correct=1 wrong=1 blank=0
-###   Reading:   correct=1 wrong=0 blank=1
+###   correctCount=2  wrongCount=1  blankCount=1
+###   listeningRaw=1  readingRaw=1
+###   listeningBlank=0  readingBlank=1
+###   listeningScaled=10  readingScaled=8  totalScore=18
 ### =====================================================================
 
-# @name step3_submit
+# @name step4_submit
 POST {{baseUrl}}/attempts/{{attemptId}}/submit
 
+###
+
 ### =====================================================================
-### BƯỚC 4 – Xem lại kết quả (bất kỳ lúc nào sau khi submit)
+### BƯỚC 5 – Xem lại kết quả (gọi bao nhiêu lần cũng được)
 ### =====================================================================
 
-# @name step4_get_result
+# @name step5_result
 GET {{baseUrl}}/attempts/{{attemptId}}/result
 
-### =====================================================================
-### BONUS – Thử thay đổi đáp án (thử 2 kịch bản khác)
-### =====================================================================
+###
 
-### Kịch bản B: Tất cả đúng
-### Uncomment các dòng dưới và chạy bước 1 lại để lấy attemptId mới
+### =====================================================================
+### KỊCH BẢN B – Tất cả đúng (chạy lại từ BƯỚC 1 để lấy attemptId mới)
+### Kết quả mong đợi: listeningRaw=2, readingRaw=2, totalScore=220
+### =====================================================================
 
 # PUT {{baseUrl}}/attempts/{{attemptId}}/answers
 # Content-Type: application/json
-# { "questionId": "cmnwmrtsy0004i6r4i7ts2g9t", "choiceId": "cmnwmrtsy0005i6r4abbn24a0" }
+#
+# { "questionId": "cmnwysbdf0004i6pcppj1cgls", "choiceId": "cmnwysbdf0005i6pcnxhg9udm" }
 
-### Kịch bản C: Tất cả bỏ trống
-### (chỉ cần gửi choiceId: null cho tất cả câu)
+###
+
+# PUT {{baseUrl}}/attempts/{{attemptId}}/answers
+# Content-Type: application/json
+#
+# { "questionId": "cmnwysbdf0009i6pcux4zxi4d", "choiceId": "cmnwysbdf000bi6pcq5qwrxl9" }
+
+###
+
+# PUT {{baseUrl}}/attempts/{{attemptId}}/answers
+# Content-Type: application/json
+#
+# { "questionId": "cmnwysbdf000gi6pcjf82ytmv", "choiceId": "cmnwysbdf000ji6pc2eq7006p" }
+
+###
+
+# PUT {{baseUrl}}/attempts/{{attemptId}}/answers
+# Content-Type: application/json
+#
+# { "questionId": "cmnwysbdf000li6pcigs4mwom", "choiceId": "cmnwysbdf000mi6pchz3eatrw" }
