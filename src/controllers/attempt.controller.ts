@@ -32,7 +32,7 @@ export async function startAttempt(req: Request, res: Response) {
 }
 
 export async function saveAnswer(req: Request, res: Response) {
-  const { attemptId } = req.params;
+  const attemptId = req.params.attemptId as string;
   const body = saveAnswerSchema.parse(req.body);
 
   const attempt = await prisma.attempt.findUnique({ where: { id: attemptId } });
@@ -66,7 +66,7 @@ export async function saveAnswer(req: Request, res: Response) {
 }
 
 export async function getAttemptSnapshot(req: Request, res: Response) {
-  const { attemptId } = req.params;
+  const attemptId = req.params.attemptId as string;
   const attempt = await prisma.attempt.findUnique({
     where: { id: attemptId },
     include: {
@@ -81,7 +81,7 @@ export async function getAttemptSnapshot(req: Request, res: Response) {
 }
 
 export async function submitAttempt(req: Request, res: Response) {
-  const { attemptId } = req.params;
+  const attemptId = req.params.attemptId as string;
 
   const attempt = await prisma.attempt.findUnique({
     where: { id: attemptId },
