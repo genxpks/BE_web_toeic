@@ -425,3 +425,136 @@ export async function submitAttempt(req: Request<AttemptParams>, res: Response) 
     },
   });
 }
+
+export async function getReviewDetails(req: Request<AttemptParams>, res: Response) {
+  const { attemptId } = req.params;
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      answers: {
+        include: {
+          choice: {
+            select: {
+              id: true,
+              label: true,
+              content: true,
+              isCorrect: true,
+            },
+          },
+          question: {
+            include: {
+              mediaAssets: true,
+              choices: true,
+              part: {
+                include: {
+                  section: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      result: true,
+      mockTest: {
+        include: {
+          sections: {
+            include: {
+              parts: {
+                include: {
+                  questions: {
+                    include: {
+                      choices: true,
+                      mediaAssets: true,
+                    },
+                  },
+                  mediaAssets: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) throw new Error('Attempt not found');
+
+  if (!attempt.result) {
+    throw new Error('Attempt has not been submitted yet');
+  }
+
+  const allQuestions = attempt.mockTest.sections.flatMap(section =>
+    section.parts.flatMap(part =>
+      part.questions.map(question => ({
+        question,
+        partId: part.id,
+        partTitle: part.title,
+        questionChoices: question.choices,
+        questionMediaAssets: question.mediaAssets,
+      }))
+    )
+  );
+
+  const questionReview = allQuestions.map(({ question, questionChoices, questionMediaAssets }) => {
+    const userAnswer = attempt.answers.find(a => a.questionId === question.id);
+    const correctChoice = questionChoices.find(c => c.isCorrect);
+
+    return {
+      questionId: question.id,
+      questionNumber: question.questionNumber,
+      stem: question.stem,
+      explanation: question.explanation,
+      userAnswer: userAnswer?.choiceId ? {
+        choiceId: userAnswer.choiceId,
+        label: userAnswer.choice?.label,
+        content: userAnswer.choice?.content,
+      } : null,
+      correctAnswer: correctChoice ? {
+        id: correctChoice.id,
+        questionId: question.id,
+        label: correctChoice.label,
+        content: correctChoice.content,
+        isCorrect: true,
+      } : null,
+      isCorrect: userAnswer?.choiceId === correctChoice?.id,
+      transcript: questionMediaAssets.find(asset => asset.type === 'AUDIO')?.publicUrl || null,
+    };
+  });
+
+  const partBreakdown = attempt.mockTest.sections.flatMap(section =>
+    section.parts.map(part => {
+      const partQuestions = allQuestions.filter(q => q.partId === part.id);
+      const userAnswers = attempt.answers.filter(a => partQuestions.some(q => q.question.id === a.questionId));
+
+      const correctAnswers = userAnswers.filter(ua => {
+        const q = partQuestions.find(q => q.question.id === ua.questionId);
+        return ua.choiceId === q?.questionChoices.find(c => c.isCorrect)?.id;
+      }).length;
+
+      return {
+        partId: part.id,
+        partTitle: part.title,
+        totalQuestions: partQuestions.length,
+        correctAnswers: correctAnswers,
+        score: Math.round((correctAnswers / partQuestions.length) * 100) || 0,
+      };
+    })
+  );
+
+  res.json({
+    data: {
+      scoreSummary: {
+        listeningRaw: attempt.result.listeningRaw,
+        readingRaw: attempt.result.readingRaw,
+        listeningScaled: attempt.result.listeningScaled,
+        readingScaled: attempt.result.readingScaled,
+        totalScore: attempt.result.totalScore,
+        correctCount: attempt.result.correctCount,
+        wrongCount: attempt.result.wrongCount,
+        blankCount: attempt.result.blankCount,
+      },
+      questionReview,
+      partBreakdown,
+    },
+  });
+}
