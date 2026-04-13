@@ -234,3 +234,129 @@ export async function getAttemptSnapshot(attemptId: string): Promise<AttemptSnap
     answers: attempt.answers,
   };
 }
+
+export interface SubmitResult {
+  id: string;
+  attemptId: string;
+  userId: string;
+  listeningRaw: number;
+  readingRaw: number;
+  listeningScaled: number;
+  readingScaled: number;
+  totalScore: number;
+  correctCount: number;
+  wrongCount: number;
+  blankCount: number;
+  createdAt: Date;
+}
+
+export async function submitAttempt(attemptId: string): Promise<SubmitResult> {
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      answers: true,
+      mockTest: {
+        include: {
+          sections: {
+            include: {
+              parts: {
+                include: {
+                  questions: {
+                    include: { choices: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) {
+    throw new Error('Attempt not found');
+  }
+
+  if (attempt.status !== AttemptStatus.IN_PROGRESS) {
+    throw new Error('Attempt is not active');
+  }
+
+  const questions = attempt.mockTest.sections.flatMap((section) =>
+    section.parts.flatMap((part) =>
+      part.questions.map((question) => ({ ...question, sectionType: section.type }))
+    )
+  );
+
+  const answersByQuestionId = new Map(
+    attempt.answers.map((item) => [item.questionId, item.choiceId])
+  );
+
+  let listeningRaw = 0;
+  let readingRaw = 0;
+  let correctCount = 0;
+  let blankCount = 0;
+
+  for (const question of questions) {
+    const selected = answersByQuestionId.get(question.id);
+    if (!selected) {
+      blankCount += 1;
+      continue;
+    }
+
+    const correctChoice = question.choices.find((choice) => choice.isCorrect);
+    if (correctChoice?.id === selected) {
+      correctCount += 1;
+      if (question.sectionType === 'LISTENING') {
+        listeningRaw += 1;
+      } else {
+        readingRaw += 1;
+      }
+    }
+  }
+
+  const wrongCount = questions.length - correctCount - blankCount;
+  const listeningScaled = Math.min(495, listeningRaw * 5);
+  const readingScaled = Math.min(495, readingRaw * 5);
+  const totalScore = listeningScaled + readingScaled;
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.attempt.update({
+      where: { id: attemptId },
+      data: {
+        status: AttemptStatus.SUBMITTED,
+        submittedAt: new Date(),
+        lastActivityAt: new Date(),
+      },
+    });
+
+    return tx.result.create({
+      data: {
+        userId: attempt.userId,
+        attemptId,
+        listeningRaw,
+        readingRaw,
+        listeningScaled,
+        readingScaled,
+        totalScore,
+        correctCount,
+        wrongCount,
+        blankCount,
+      },
+    });
+  });
+
+  return {
+    id: result.id,
+    attemptId: result.attemptId,
+    userId: result.userId,
+    listeningRaw: result.listeningRaw,
+    readingRaw: result.readingRaw,
+    listeningScaled: result.listeningScaled,
+    readingScaled: result.readingScaled,
+    totalScore: result.totalScore,
+    correctCount: result.correctCount,
+    wrongCount: result.wrongCount,
+    blankCount: result.blankCount,
+    createdAt: result.createdAt,
+  };
+}
