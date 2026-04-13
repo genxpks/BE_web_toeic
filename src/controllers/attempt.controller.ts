@@ -40,15 +40,26 @@ export async function saveAnswer(req: Request, res: Response) {
 
 export async function getAttemptSnapshot(req: Request, res: Response) {
   const attemptId = req.params.attemptId as string;
-  const attempt = await prisma.attempt.findUnique({
-    where: { id: attemptId },
-    include: {
-      answers: true,
-      mockTest: true,
-    },
-  });
 
-  if (!attempt) throw new Error('Attempt not found');
+  const snapshot = await attemptService.getAttemptSnapshot(attemptId);
+
+  res.json({ data: snapshot });
+}
+
+export async function getActiveAttempt(req: Request, res: Response) {
+  const userId = req.query.userId as string;
+  const mockTestId = req.query.mockTestId as string;
+
+  if (!userId || !mockTestId) {
+    throw new Error('userId and mockTestId are required');
+  }
+
+  const attempt = await attemptService.getInProgressAttempt({ userId, mockTestId });
+
+  if (!attempt) {
+    res.status(404).json({ data: null, message: 'No active attempt found' });
+    return;
+  }
 
   res.json({ data: attempt });
 }
