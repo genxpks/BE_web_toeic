@@ -116,6 +116,7 @@ model Attempt {
   remainingTimeSec  Int
   expiresAt         DateTime
   lastActivityAt    DateTime?
+  lastSavedAt       DateTime?
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   mockTest          MockTest        @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
   answers           AttemptAnswer[]

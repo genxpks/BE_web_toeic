@@ -100,9 +100,10 @@ export async function saveAnswersBatch(req: Request, res: Response) {
       });
     }
 
+    const now = new Date();
     await tx.attempt.update({
       where: { id: attemptId },
-      data: { lastActivityAt: new Date() },
+      data: { lastActivityAt: now, lastSavedAt: now },
     });
   });
 
@@ -167,6 +168,67 @@ export async function submitAttempt(req: Request, res: Response) {
 
   const breakdown = result.breakdownJson ? JSON.parse(result.breakdownJson) : null;
   res.status(201).json({ data: { ...result, breakdown } });
+}
+
+// RecoverPolicy xác định FE nên làm gì khi nhận response:
+//   RESUME           – attempt vẫn IN_PROGRESS, trả về state đầy đủ để render lại
+//   ALREADY_SUBMITTED – đã nộp bài thủ công, FE chuyển sang trang kết quả
+//   EXPIRED          – hết giờ (tự động hoặc do job), FE chuyển sang trang kết quả
+//   NOT_FOUND        – attemptId không tồn tại
+type RecoverPolicy = 'RESUME' | 'ALREADY_SUBMITTED' | 'EXPIRED' | 'NOT_FOUND';
+
+export async function recoverAttempt(req: Request, res: Response) {
+  const attemptId = req.params['attemptId'] as string;
+
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: { answers: true },
+  });
+
+  if (!attempt) {
+    res.status(404).json({ data: { recoverPolicy: 'NOT_FOUND' as RecoverPolicy } });
+    return;
+  }
+
+  // Attempt đã kết thúc — không cần tính time, FE đi thẳng tới result
+  if (attempt.status === AttemptStatus.SUBMITTED) {
+    res.json({ data: { recoverPolicy: 'ALREADY_SUBMITTED' as RecoverPolicy, attemptId } });
+    return;
+  }
+
+  if (attempt.status === AttemptStatus.EXPIRED) {
+    res.json({ data: { recoverPolicy: 'EXPIRED' as RecoverPolicy, attemptId } });
+    return;
+  }
+
+  // status === IN_PROGRESS: kiểm tra có thực sự hết giờ chưa
+  const serverNow = new Date();
+  const remainingMs = attempt.expiresAt.getTime() - serverNow.getTime();
+
+  if (remainingMs <= 0) {
+    // Hết giờ nhưng job chưa kịp chạy — finalize ngay tại đây
+    await finalizeAttempt(attemptId, 'EXPIRED');
+    res.json({ data: { recoverPolicy: 'EXPIRED' as RecoverPolicy, attemptId } });
+    return;
+  }
+
+  const remainingSec = Math.floor(remainingMs / 1000);
+
+  // Trả về toàn bộ state cần thiết để FE render lại màn hình làm bài
+  res.json({
+    data: {
+      recoverPolicy: 'RESUME' as RecoverPolicy,
+      attemptId,
+      mockTestId: attempt.mockTestId,
+      remainingSec,
+      expiresAt: attempt.expiresAt,
+      lastSavedAt: attempt.lastSavedAt,
+      // Map questionId → choiceId để FE restore các ô đã chọn
+      answers: Object.fromEntries(
+        attempt.answers.map((a) => [a.questionId, a.choiceId]),
+      ),
+    },
+  });
 }
 
 export async function getAttemptResult(req: Request, res: Response) {

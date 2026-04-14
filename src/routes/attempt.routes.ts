@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getAttemptResult,
   getAttemptSnapshot,
+  recoverAttempt,
   saveAnswer,
   saveAnswersBatch,
   startAttempt,
@@ -15,6 +16,7 @@ export const attemptRouter = Router();
 
 attemptRouter.post('/start', asyncHandler(startAttempt));
 attemptRouter.get('/:attemptId', asyncHandler(getAttemptSnapshot));
+attemptRouter.get('/:attemptId/recover', asyncHandler(recoverAttempt));
 attemptRouter.get('/:attemptId/sync', asyncHandler(syncTimer));
 attemptRouter.put('/:attemptId/answers', asyncHandler(timerGuard), asyncHandler(saveAnswer));
 attemptRouter.put('/:attemptId/answers/batch', asyncHandler(timerGuard), asyncHandler(saveAnswersBatch));
