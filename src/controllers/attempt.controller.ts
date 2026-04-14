@@ -52,19 +52,28 @@ export async function saveAnswer(req: Request, res: Response) {
   const attemptId = req.params['attemptId'] as string;
   const body = saveAnswerSchema.parse(req.body);
 
-  const attempt = await prisma.attempt.findUnique({ where: { id: attemptId } });
-  if (!attempt) throw new Error('Attempt not found');
-  if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
+  // Toàn bộ check + write trong 1 transaction để tránh race condition
+  // (tab khác submit trong lúc tab này đang lưu đáp án)
+  const answer = await prisma.$transaction(async (tx) => {
+    const attempt = await tx.attempt.findUnique({
+      where: { id: attemptId },
+      select: { status: true },
+    });
+    if (!attempt) throw new Error('Attempt not found');
+    if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
 
-  const answer = await prisma.attemptAnswer.upsert({
-    where: { attemptId_questionId: { attemptId, questionId: body.questionId } },
-    create: { attemptId, questionId: body.questionId, choiceId: body.choiceId ?? null },
-    update: { choiceId: body.choiceId ?? null, answeredAt: new Date() },
-  });
+    const saved = await tx.attemptAnswer.upsert({
+      where: { attemptId_questionId: { attemptId, questionId: body.questionId } },
+      create: { attemptId, questionId: body.questionId, choiceId: body.choiceId ?? null },
+      update: { choiceId: body.choiceId ?? null, answeredAt: new Date() },
+    });
 
-  await prisma.attempt.update({
-    where: { id: attemptId },
-    data: { lastActivityAt: new Date() },
+    await tx.attempt.update({
+      where: { id: attemptId },
+      data: { lastActivityAt: new Date() },
+    });
+
+    return saved;
   });
 
   res.json({ data: answer });
@@ -74,23 +83,28 @@ export async function saveAnswersBatch(req: Request, res: Response) {
   const attemptId = req.params['attemptId'] as string;
   const { answers } = batchSchema.parse(req.body);
 
-  const attempt = await prisma.attempt.findUnique({ where: { id: attemptId } });
-  if (!attempt) throw new Error('Attempt not found');
-  if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
+  // Interactive transaction: check status bên trong để khóa write sau submit
+  await prisma.$transaction(async (tx) => {
+    const attempt = await tx.attempt.findUnique({
+      where: { id: attemptId },
+      select: { status: true },
+    });
+    if (!attempt) throw new Error('Attempt not found');
+    if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new Error('Attempt is not active');
 
-  await prisma.$transaction([
-    ...answers.map((a) =>
-      prisma.attemptAnswer.upsert({
+    for (const a of answers) {
+      await tx.attemptAnswer.upsert({
         where: { attemptId_questionId: { attemptId, questionId: a.questionId } },
         create: { attemptId, questionId: a.questionId, choiceId: a.choiceId ?? null },
         update: { choiceId: a.choiceId ?? null, answeredAt: new Date() },
-      }),
-    ),
-    prisma.attempt.update({
+      });
+    }
+
+    await tx.attempt.update({
       where: { id: attemptId },
       data: { lastActivityAt: new Date() },
-    }),
-  ]);
+    });
+  });
 
   res.json({ data: { savedCount: answers.length } });
 }
@@ -141,7 +155,15 @@ export async function submitAttempt(req: Request, res: Response) {
   const attemptId = req.params['attemptId'] as string;
 
   const result = await finalizeAttempt(attemptId, 'MANUAL');
-  if (!result) throw new Error('Attempt already finished');
+
+  if (!result) {
+    // Idempotent: attempt đã được submit (có thể từ tab khác) — trả về kết quả hiện có
+    const existing = await prisma.result.findUnique({ where: { attemptId } });
+    if (!existing) throw new Error('Attempt already finished with no result');
+    const breakdown = existing.breakdownJson ? JSON.parse(existing.breakdownJson) : null;
+    res.status(200).json({ data: { ...existing, breakdown } });
+    return;
+  }
 
   const breakdown = result.breakdownJson ? JSON.parse(result.breakdownJson) : null;
   res.status(201).json({ data: { ...result, breakdown } });

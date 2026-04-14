@@ -46,16 +46,17 @@ export async function finalizeAttempt(attemptId: string, trigger: SubmitTrigger)
 
   const newStatus =
     trigger === 'EXPIRED' ? AttemptStatus.EXPIRED : AttemptStatus.SUBMITTED;
+  const now = new Date();
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.attempt.update({
-      where: { id: attemptId },
-      data: {
-        status: newStatus,
-        submittedAt: new Date(),
-        lastActivityAt: new Date(),
-      },
+    // Atomic CAS: chỉ update nếu status vẫn còn IN_PROGRESS
+    // Ngăn race condition khi nhiều tab submit đồng thời
+    const updated = await tx.attempt.updateMany({
+      where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
+      data: { status: newStatus, submittedAt: now, lastActivityAt: now },
     });
+
+    if (updated.count === 0) return null; // request khác đã finalize trước
 
     return tx.result.create({
       data: {
